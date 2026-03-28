@@ -124,26 +124,36 @@ def _profile_offset_pt(ch_rel: float, elev: float,
     return ch_out, el_out
 
 
-def _draw_profile(msp, segs: List[Dict], radius: float, base_N: float):
+def _draw_profile(msp, segs: List[Dict], radius: float,
+                  origin_E: float, origin_N: float):
     """
     Draw the profile (longitudinal section).
-    X-axis = relative chainage (ch - ch_ref), Y-axis = elevation + base_N.
-    base_N pushes the profile below the plan view in model space.
+
+    Profile coordinate system:
+      X = origin_E + (ch - ch_ref)   ← chainage mapped to horizontal axis
+      Y = origin_N + elev             ← elevation mapped to vertical axis
+
+    origin_E / origin_N are chosen by the caller so the profile sits
+    directly below the plan view without any overlap.
     """
     if len(segs) < 2 or segs[0]['elev'] is None:
         return
 
     ch_ref = segs[0]['ch']
 
+    def px(ch):  return origin_E + (ch - ch_ref)
+    def py(el):  return origin_N + el
+
     for s in segs:
-        ch_r = s['ch'] - ch_ref
+        ch_r = px(s['ch'])
+        el_c = py(s['elev'])
         za   = s['za'] if s['za'] is not None else 90.0
-        s['_CH_top'], s['_EL_top'] = _profile_offset_pt(ch_r, s['elev'], za, -radius, base_N)
-        s['_CH_bot'], s['_EL_bot'] = _profile_offset_pt(ch_r, s['elev'], za,  radius, base_N)
+        s['_CH_top'], s['_EL_top'] = _profile_offset_pt(ch_r, el_c, za, -radius, 0)
+        s['_CH_bot'], s['_EL_bot'] = _profile_offset_pt(ch_r, el_c, za,  radius, 0)
 
     # Centreline polyline
     msp.add_lwpolyline(
-        [(s['ch'] - ch_ref, s['elev'] + base_N) for s in segs],
+        [(px(s['ch']), py(s['elev'])) for s in segs],
         dxfattribs={'layer': LAYER_CENTER})
 
     # Top-wall polyline
@@ -167,8 +177,8 @@ def _draw_profile(msp, segs: List[Dict], radius: float, base_N: float):
     text_h = max(radius * 0.25, 0.1)
     for i in range(1, len(segs)):
         s0, s1 = segs[i - 1], segs[i]
-        ch_mid = (s0['ch'] + s1['ch']) / 2 - ch_ref
-        el_mid = (s0['elev'] + s1['elev']) / 2 + base_N
+        ch_mid = (px(s0['ch']) + px(s1['ch'])) / 2
+        el_mid = (py(s0['elev']) + py(s1['elev'])) / 2
         za = s1['za'] if s1['za'] is not None else 90.0
         rot = 90 - za
         _add_text(msp, s1['name'], ch_mid, el_mid, text_h, rot, LAYER_TEXT)
@@ -203,14 +213,27 @@ def generate_dxf(segs: List[Dict], tunnel_diameter: float) -> io.BytesIO:
     # Plan view
     _draw_plan(msp, segs, radius)
 
-    # Profile view — place below plan with gap = 3 × diameter
+    # Profile view — place directly below plan view, no overlap
     has_profile = segs and segs[0].get('elev') is not None
     if has_profile:
-        min_N   = min(s['N'] for s in segs)
-        max_elev = max(s['elev'] for s in segs)
-        gap     = tunnel_diameter * 3 + 20
-        base_N  = min_N - gap - max_elev - radius
-        _draw_profile(msp, segs, radius, base_N)
+        min_E_plan = min(s['E'] for s in segs)
+        min_N_plan = min(s['N'] for s in segs)
+        min_elev   = min(s['elev'] for s in segs)
+        max_elev   = max(s['elev'] for s in segs)
+        elev_span  = max_elev - min_elev
+
+        # Gap between plan bottom edge and profile top edge
+        gap = max(tunnel_diameter * 5, 50)
+
+        # origin_E: profile X=0 (ch_ref) maps to left edge of plan view
+        origin_E = min_E_plan
+
+        # origin_N: profile top (max_elev) sits 'gap' below plan bottom (min_N_plan)
+        #   top of profile  = origin_N + max_elev + radius
+        #   we want that ≤  min_N_plan - gap
+        origin_N = min_N_plan - gap - max_elev - radius
+
+        _draw_profile(msp, segs, radius, origin_E, origin_N)
 
     text_buf = io.StringIO()
     doc.write(text_buf)
