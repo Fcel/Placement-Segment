@@ -98,31 +98,35 @@ def _parse_horizontal(coord_geom, sta_start: float) -> List[HPoint]:
                 Nc, Ec = _parse_pt(centers[0].text)
                 r = math.hypot(E1 - Ec, N1 - Nc)
 
-                a1 = math.atan2(E1 - Ec, N1 - Nc)   # angle on circle (N-axis based)
+                # Standard math angle: atan2(y, x) = atan2(N-Nc, E-Ec)
+                # CCW in plan view → theta increases  ✓
+                # CW  in plan view → theta decreases  ✓
+                # Point on circle: E = Ec + r*cos(θ), N = Nc + r*sin(θ)
+                th1 = math.atan2(N1 - Nc, E1 - Ec)
 
                 if len_attr:
                     arc = float(len_attr)
-                    d_ang = arc / r
-                    a2 = a1 + (d_ang if rot != 'cw' else -d_ang)
+                    d_th = arc / r
+                    th2 = th1 + (d_th if rot == 'ccw' else -d_th)
                 else:
-                    a2 = math.atan2(E2 - Ec, N2 - Nc)
-                    d_ang = a2 - a1
-                    if rot == 'cw':
-                        if d_ang > 0:
-                            d_ang -= 2 * math.pi
-                    else:
-                        if d_ang < 0:
-                            d_ang += 2 * math.pi
-                    arc = r * abs(d_ang)
-                    a2 = a1 + d_ang
+                    th2 = math.atan2(N2 - Nc, E2 - Ec)
+                    d_th = th2 - th1
+                    if rot == 'ccw':          # angle must increase
+                        if d_th < 0:
+                            d_th += 2 * math.pi
+                    else:                     # CW: angle must decrease
+                        if d_th > 0:
+                            d_th -= 2 * math.pi
+                    arc = r * abs(d_th)
+                    th2 = th1 + d_th
 
                 n = max(int(math.ceil(arc / STEP)), 1)
                 for j in range(n + 1):
                     t = j / n
-                    a = a1 + t * (a2 - a1)
+                    th = th1 + t * (th2 - th1)
                     raw.append((ch + t * arc,
-                                Ec + r * math.sin(a),
-                                Nc + r * math.cos(a)))
+                                Ec + r * math.cos(th),
+                                Nc + r * math.sin(th)))
                 ch += arc
 
             else:
