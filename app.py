@@ -1,125 +1,130 @@
 """
-Placement of Tunnel Segment — Web Application
-Flask backend: accepts LandXML + parameters, returns DXF.
+Placement of Tunnel Segment — Streamlit App
 """
 
-import traceback
-from flask import Flask, request, send_file, render_template, jsonify
-
-from src.landxml_parser    import parse_landxml
+import io
+import streamlit as st
+from src.landxml_parser     import parse_landxml
 from src.segment_calculator import calculate_segments
-from src.dxf_generator     import generate_dxf
+from src.dxf_generator      import generate_dxf
 
-app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024   # 32 MB
+st.set_page_config(
+    page_title="Tunnel Segment Placement",
+    page_icon="🚇",
+    layout="centered",
+)
 
+st.title("🚇 Tunnel Segment Placement")
+st.caption("LandXML hizalamasından otomatik segment yerleşimi — DXF çıktısı")
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+# ── 1. LandXML upload ──────────────────────────────────────────────────────
+st.subheader("1 · LandXML Dosyası")
+uploaded = st.file_uploader("XML / LandXML dosyası seçin", type=["xml", "landxml"])
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+# ── 2. Parameters ──────────────────────────────────────────────────────────
+st.subheader("2 · Segment Parametreleri")
 
+col1, col2 = st.columns(2)
+with col1:
+    start_ch    = st.number_input("Başlangıç Chainagei (m)", value=0.0, step=0.001, format="%.3f")
+    seg_width   = st.number_input("Segment Genişliği (m)",   value=1.500, step=0.001, format="%.3f", min_value=0.001)
+    tunnel_dia  = st.number_input("Tünel Çapı (m)",          value=6.300, step=0.001, format="%.3f", min_value=0.001)
 
-@app.route('/preview', methods=['POST'])
-def preview():
-    """Return first 20 segments as JSON (for the on-page table preview)."""
-    try:
-        xml_bytes, params = _parse_request()
-        alignment = parse_landxml(xml_bytes)
-        segs = calculate_segments(alignment, **params)
-
-        rows = [
-            {
-                'no':       s['no'],
-                'name':     s['name'],
-                'ch':       round(s['ch'],   3),
-                'E':        round(s['E'],    3),
-                'N':        round(s['N'],    3),
-                'elev':     round(s['elev'], 3) if s['elev'] is not None else '—',
-                'az':       round(s['az'],   4),
-                'za':       round(s['za'],   4) if s['za']  is not None else '—',
-            }
-            for s in segs[:20]
-        ]
-        return jsonify({'total': len(segs), 'rows': rows})
-
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': f'Beklenmeyen hata: {e}'}), 500
-
-
-@app.route('/generate', methods=['POST'])
-def generate():
-    """Generate and return the DXF file."""
-    try:
-        xml_bytes, params = _parse_request()
-        alignment = parse_landxml(xml_bytes)
-        segs      = calculate_segments(alignment, **params)
-        dxf_buf   = generate_dxf(segs, float(request.form['tunnel_diameter']))
-
-        filename = f"tunnel_segments_{params['ring_prefix']}.dxf"
-        return send_file(
-            dxf_buf,
-            mimetype='application/octet-stream',
-            as_attachment=True,
-            download_name=filename,
-        )
-
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': f'Beklenmeyen hata: {e}'}), 500
-
-
-# ---------------------------------------------------------------------------
-# Helper
-# ---------------------------------------------------------------------------
-
-def _parse_request():
-    """Extract and validate file + form parameters."""
-    f = request.files.get('landxml')
-    if not f or f.filename == '':
-        raise ValueError('LandXML dosyası seçilmedi.')
-
-    xml_bytes = f.read()
-
-    start_ch         = float(request.form['start_ch'])
-    seg_width        = float(request.form['seg_width'])
-    tunnel_diameter  = float(request.form['tunnel_diameter'])
-    ring_prefix      = request.form.get('ring_prefix', 'R').strip() or 'R'
-
-    num_rings_str = request.form.get('num_rings', '').strip()
-    end_ch_str    = request.form.get('end_ch',    '').strip()
-
-    if num_rings_str:
-        num_rings = int(num_rings_str)
-    elif end_ch_str:
-        end_ch    = float(end_ch_str)
-        num_rings = int(round((end_ch - start_ch) / seg_width))
+with col2:
+    ring_mode = st.radio("Ring sınırı", ["Ring Sayısı", "Bitiş Chainagei"], horizontal=True)
+    if ring_mode == "Ring Sayısı":
+        num_rings = st.number_input("Ring Sayısı", value=100, min_value=1, step=1)
+        end_ch    = None
     else:
-        raise ValueError('Ring sayısı veya bitiş chainagei girilmedi.')
+        end_ch    = st.number_input("Bitiş Chainagei (m)", value=0.0, step=0.001, format="%.3f")
+        num_rings = None
 
-    if seg_width <= 0:
-        raise ValueError('Segment genişliği 0\'dan büyük olmalı.')
-    if num_rings <= 0:
-        raise ValueError('Ring sayısı 0\'dan büyük olmalı.')
-    if tunnel_diameter <= 0:
-        raise ValueError('Tünel çapı 0\'dan büyük olmalı.')
+    ring_prefix = st.text_input("Ring Ön Eki", value="R", max_chars=10)
 
-    params = dict(
-        start_ch    = start_ch,
-        seg_width   = seg_width,
-        num_rings   = num_rings,
-        ring_prefix = ring_prefix,
+# ── Resolve num_rings ───────────────────────────────────────────────────────
+def resolve_num_rings():
+    if num_rings is not None:
+        return int(num_rings)
+    delta = end_ch - start_ch
+    if delta <= 0:
+        st.error("Bitiş chainagei başlangıçtan büyük olmalı.")
+        return None
+    return max(1, int(round(delta / seg_width)))
+
+# ── 3. Actions ─────────────────────────────────────────────────────────────
+st.subheader("3 · İşlem")
+
+col_prev, col_gen = st.columns(2)
+
+# Preview
+with col_prev:
+    if st.button("📋 Önizle", use_container_width=True):
+        if not uploaded:
+            st.error("LandXML dosyası yüklenmedi.")
+        else:
+            n = resolve_num_rings()
+            if n:
+                with st.spinner("Hesaplanıyor…"):
+                    try:
+                        aln  = parse_landxml(uploaded.read())
+                        segs = calculate_segments(
+                            aln, start_ch=start_ch, seg_width=seg_width,
+                            num_rings=n, ring_prefix=ring_prefix or "R"
+                        )
+                        st.session_state["segs"] = segs
+                        st.success(f"Toplam {len(segs)} yüzey hesaplandı.")
+                    except Exception as e:
+                        st.error(str(e))
+
+# Generate DXF
+with col_gen:
+    if st.button("⬇️ DXF Oluştur", use_container_width=True, type="primary"):
+        if not uploaded:
+            st.error("LandXML dosyası yüklenmedi.")
+        else:
+            n = resolve_num_rings()
+            if n:
+                with st.spinner("DXF üretiliyor…"):
+                    try:
+                        uploaded.seek(0)
+                        aln  = parse_landxml(uploaded.read())
+                        segs = calculate_segments(
+                            aln, start_ch=start_ch, seg_width=seg_width,
+                            num_rings=n, ring_prefix=ring_prefix or "R"
+                        )
+                        buf = generate_dxf(segs, tunnel_diameter=tunnel_dia)
+                        st.session_state["dxf_buf"]  = buf.read()
+                        st.session_state["dxf_name"] = f"tunnel_segments_{ring_prefix or 'R'}.dxf"
+                    except Exception as e:
+                        st.error(str(e))
+
+# Download button (persists after rerun)
+if "dxf_buf" in st.session_state:
+    st.download_button(
+        label="💾 DXF İndir",
+        data=st.session_state["dxf_buf"],
+        file_name=st.session_state["dxf_name"],
+        mime="application/octet-stream",
+        use_container_width=True,
     )
-    return xml_bytes, params
 
+# ── 4. Preview table ────────────────────────────────────────────────────────
+if "segs" in st.session_state:
+    segs = st.session_state["segs"]
+    st.subheader("4 · Önizleme (ilk 20 yüzey)")
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    import pandas as pd
+    rows = [
+        {
+            "No":          s["no"],
+            "İsim":        s["name"],
+            "Chainage (m)": round(s["ch"],   3),
+            "Easting (m)":  round(s["E"],    3),
+            "Northing (m)": round(s["N"],    3),
+            "Elev (m)":     round(s["elev"], 3) if s["elev"] is not None else "—",
+            "Azimuth (°)":  round(s["az"],   4),
+            "Zenith (°)":   round(s["za"],   4) if s["za"]  is not None else "—",
+        }
+        for s in segs[:20]
+    ]
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
