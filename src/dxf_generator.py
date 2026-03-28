@@ -97,14 +97,22 @@ def _draw_plan(msp, segs: List[Dict], radius: float):
             (s['_ER'], s['_NR'], 0),
             dxfattribs={'layer': LAYER_SEGMENT})
 
-    # Ring-name labels at midpoint between consecutive faces
-    text_h = max(radius * 0.25, 0.1)
+    # Ring-name labels — placed outside the right wall, one per ring body
+    # Text height scaled to segment width so labels never overlap
+    seg_w  = (segs[-1]['ch'] - segs[0]['ch']) / max(len(segs) - 1, 1)
+    text_h = max(min(seg_w * 0.40, radius * 0.35), 0.05)
+    gap    = text_h * 0.5            # small gap between wall and text
+
     for i in range(1, len(segs)):
         s0, s1 = segs[i - 1], segs[i]
-        mid_E = (s0['E'] + s1['E']) / 2
-        mid_N = (s0['N'] + s1['N']) / 2
-        rot   = 90 - s1['az']           # AutoCAD angle from East-axis
-        _add_text(msp, s1['name'], mid_E, mid_N, text_h, rot, LAYER_TEXT)
+        # Midpoint along the alignment between the two faces
+        mid_E  = (s0['E'] + s1['E']) / 2
+        mid_N  = (s0['N'] + s1['N']) / 2
+        mid_az = s1['az']
+        # Offset to the right of the tunnel (outside right wall)
+        txt_E, txt_N = _offset_perpendicular(mid_E, mid_N, mid_az, radius + gap)
+        rot = 90 - mid_az
+        _add_text(msp, s1['name'], txt_E, txt_N, text_h, rot, LAYER_TEXT)
 
 
 # ---------------------------------------------------------------------------
@@ -173,15 +181,19 @@ def _draw_profile(msp, segs: List[Dict], radius: float,
             (s['_CH_bot'], s['_EL_bot'], 0),
             dxfattribs={'layer': LAYER_SEGMENT})
 
-    # Ring-name labels
-    text_h = max(radius * 0.25, 0.1)
+    # Ring-name labels — placed above the top wall in profile view
+    seg_w  = (segs[-1]['ch'] - segs[0]['ch']) / max(len(segs) - 1, 1)
+    text_h = max(min(seg_w * 0.40, radius * 0.35), 0.05)
+    gap    = text_h * 0.5
+
     for i in range(1, len(segs)):
         s0, s1 = segs[i - 1], segs[i]
         ch_mid = (px(s0['ch']) + px(s1['ch'])) / 2
-        el_mid = (py(s0['elev']) + py(s1['elev'])) / 2
-        za = s1['za'] if s1['za'] is not None else 90.0
+        # Place text above the top-wall midpoint
+        el_top_mid = (s0['_EL_top'] + s1['_EL_top']) / 2
+        za  = s1['za'] if s1['za'] is not None else 90.0
         rot = 90 - za
-        _add_text(msp, s1['name'], ch_mid, el_mid, text_h, rot, LAYER_TEXT)
+        _add_text(msp, s1['name'], ch_mid, el_top_mid + gap + text_h, text_h, rot, LAYER_TEXT)
 
 
 # ---------------------------------------------------------------------------
