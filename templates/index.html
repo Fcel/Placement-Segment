@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tunnel Segment Placement</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+    header h1 {
+      font-size: 1.8rem;
+      color: #4fc3f7;
+      letter-spacing: 1px;
+    }
+    header p {
+      font-size: 0.9rem;
+      color: #888;
+      margin-top: 0.4rem;
+    }
+
+    .card {
+      background: #1a1d27;
+      border: 1px solid #2a2d3a;
+      border-radius: 12px;
+      padding: 1.8rem 2rem;
+      width: 100%;
+      max-width: 680px;
+      margin-bottom: 1.5rem;
+    }
+    .card h2 {
+      font-size: 1rem;
+      color: #90caf9;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 1.2rem;
+      border-bottom: 1px solid #2a2d3a;
+      padding-bottom: 0.6rem;
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed #3a3d4a;
+      border-radius: 8px;
+      padding: 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #4fc3f7;
+      background: #1e2235;
+    }
+    .drop-zone input[type="file"] { display: none; }
+    .drop-zone .icon { font-size: 2.5rem; margin-bottom: 0.6rem; }
+    .drop-zone .hint { font-size: 0.85rem; color: #888; }
+    .drop-zone .file-name {
+      margin-top: 0.8rem;
+      font-size: 0.9rem;
+      color: #4fc3f7;
+      font-weight: 600;
+    }
+
+    /* Grid inputs */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .field { display: flex; flex-direction: column; gap: 0.4rem; }
+    .field label { font-size: 0.8rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+    .field input {
+      background: #0f1117;
+      border: 1px solid #2a2d3a;
+      border-radius: 6px;
+      color: #e0e0e0;
+      padding: 0.55rem 0.75rem;
+      font-size: 0.95rem;
+      transition: border-color 0.2s;
+      width: 100%;
+    }
+    .field input:focus {
+      outline: none;
+      border-color: #4fc3f7;
+    }
+    .field .unit {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: -0.2rem;
+    }
+
+    .or-row {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      margin: 0.2rem 0;
+    }
+    .or-row span {
+      font-size: 0.78rem;
+      color: #555;
+      white-space: nowrap;
+    }
+    .or-row hr { flex: 1; border: none; border-top: 1px solid #2a2d3a; }
+
+    /* Buttons */
+    .btn-row {
+      display: flex;
+      gap: 1rem;
+      margin-top: 1.4rem;
+    }
+    button {
+      flex: 1;
+      padding: 0.75rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    button:active { transform: scale(0.97); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-preview  { background: #263551; color: #90caf9; }
+    .btn-generate { background: #1b4d3e; color: #80cbc4; }
+    .btn-preview:hover:not(:disabled)  { background: #2e4068; }
+    .btn-generate:hover:not(:disabled) { background: #245c4c; }
+
+    /* Spinner */
+    .spinner {
+      display: none;
+      width: 18px; height: 18px;
+      border: 3px solid #333;
+      border-top-color: #4fc3f7;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Alert */
+    .alert {
+      display: none;
+      padding: 0.8rem 1rem;
+      border-radius: 7px;
+      font-size: 0.88rem;
+      margin-top: 1rem;
+    }
+    .alert.error   { background: #2d1b1b; border: 1px solid #c0392b; color: #e74c3c; }
+    .alert.success { background: #1b2d1b; border: 1px solid #27ae60; color: #2ecc71; }
+
+    /* Preview table */
+    .preview-wrap {
+      display: none;
+      overflow-x: auto;
+      margin-top: 1rem;
+    }
+    .preview-wrap p.meta {
+      font-size: 0.82rem;
+      color: #666;
+      margin-bottom: 0.6rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+    }
+    th {
+      background: #1e2235;
+      color: #90caf9;
+      padding: 0.5rem 0.7rem;
+      text-align: right;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+    }
+    th:first-child, td:first-child { text-align: left; }
+    td {
+      padding: 0.45rem 0.7rem;
+      border-bottom: 1px solid #1e2235;
+      color: #ccc;
+      text-align: right;
+      white-space: nowrap;
+    }
+    tr:hover td { background: #1e2235; }
+
+    footer { margin-top: 2rem; font-size: 0.78rem; color: #444; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Tunnel Segment Placement</h1>
+  <p>LandXML hizalamasından otomatik segment yerleşimi — DXF çıktısı</p>
+</header>
+
+<!-- ── File upload ── -->
+<div class="card">
+  <h2>1 · LandXML Dosyası</h2>
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept=".xml,.landxml" />
+    <div class="icon">📂</div>
+    <div>Dosyayı buraya sürükleyin veya tıklayın</div>
+    <div class="hint">.xml / .landxml — maks 32 MB</div>
+    <div class="file-name" id="fileName"></div>
+  </div>
+</div>
+
+<!-- ── Parameters ── -->
+<div class="card">
+  <h2>2 · Segment Parametreleri</h2>
+
+  <div class="grid" style="margin-bottom:1rem">
+    <div class="field">
+      <label>Başlangıç Chainagei</label>
+      <input type="number" id="startCh" step="any" placeholder="ör. 1000.000" />
+      <span class="unit">metre</span>
+    </div>
+    <div class="field">
+      <label>Segment Genişliği</label>
+      <input type="number" id="segWidth" step="any" placeholder="ör. 1.500" />
+      <span class="unit">metre</span>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-bottom:0.6rem">
+    <div class="field">
+      <label>Ring Sayısı</label>
+      <input type="number" id="numRings" step="1" min="1" placeholder="ör. 250" />
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center">
+      <div class="or-row" style="flex-direction:column;gap:0.3rem">
+        <hr style="width:100%;border-top:1px solid #2a2d3a;margin:0" />
+        <span>VEYA</span>
+        <hr style="width:100%;border-top:1px solid #2a2d3a;margin:0" />
+      </div>
+    </div>
+  </div>
+  <div class="grid" style="margin-bottom:1rem">
+    <div class="field">
+      <label>Bitiş Chainagei</label>
+      <input type="number" id="endCh" step="any" placeholder="ör. 1375.000" />
+      <span class="unit">metre</span>
+    </div>
+    <div></div>
+  </div>
+
+  <div class="grid three">
+    <div class="field">
+      <label>Tünel Çapı</label>
+      <input type="number" id="tunnelDia" step="any" placeholder="ör. 6.300" />
+      <span class="unit">metre</span>
+    </div>
+    <div class="field">
+      <label>Ring Ön Eki</label>
+      <input type="text" id="ringPrefix" maxlength="10" placeholder="ör. R" value="R" />
+    </div>
+    <div></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-preview"  id="btnPreview"  onclick="doPreview()">Önizle</button>
+    <button class="btn-generate" id="btnGenerate" onclick="doGenerate()">DXF İndir</button>
+  </div>
+
+  <div class="spinner" id="spinner"></div>
+  <div class="alert"  id="alertBox"></div>
+</div>
+
+<!-- ── Preview table ── -->
+<div class="card" id="previewCard" style="display:none">
+  <h2>3 · Önizleme</h2>
+  <div class="preview-wrap" id="previewWrap">
+    <p class="meta" id="previewMeta"></p>
+    <table id="previewTable">
+      <thead>
+        <tr>
+          <th>No</th><th>İsim</th><th>Chainage (m)</th>
+          <th>Easting (m)</th><th>Northing (m)</th><th>Elev (m)</th>
+          <th>Azimuth (°)</th><th>Zenith (°)</th>
+        </tr>
+      </thead>
+      <tbody id="previewBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<footer>Placement of Tunnel Segment · Rev.04 port · Python/Flask + ezdxf</footer>
+
+<script>
+  // ── Drop zone ──
+  const dropZone  = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileName  = document.getElementById('fileName');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => showFile(fileInput.files[0]));
+
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file) { fileInput.files = e.dataTransfer.files; showFile(file); }
+  });
+
+  function showFile(file) {
+    if (!file) return;
+    fileName.textContent = `✔ ${file.name}  (${(file.size / 1024).toFixed(1)} KB)`;
+  }
+
+  // ── Form data builder ──
+  function buildForm(extraFile) {
+    const fd = new FormData();
+    const f  = fileInput.files[0];
+    if (!f) throw '❌ LandXML dosyası seçilmedi.';
+    fd.append('landxml', f);
+
+    const get = id => document.getElementById(id).value.trim();
+
+    const startCh = get('startCh');
+    const segW    = get('segWidth');
+    const dia     = get('tunnelDia');
+    if (!startCh) throw '❌ Başlangıç chainagei girilmedi.';
+    if (!segW)    throw '❌ Segment genişliği girilmedi.';
+    if (!dia)     throw '❌ Tünel çapı girilmedi.';
+    if (parseFloat(segW) <= 0) throw '❌ Segment genişliği 0\'dan büyük olmalı.';
+
+    fd.append('start_ch',         startCh);
+    fd.append('seg_width',        segW);
+    fd.append('tunnel_diameter',  dia);
+    fd.append('ring_prefix',      get('ringPrefix') || 'R');
+
+    const nr = get('numRings');
+    const ec = get('endCh');
+    if (nr)      fd.append('num_rings', nr);
+    else if (ec) fd.append('end_ch',    ec);
+    else throw '❌ Ring sayısı veya bitiş chainagei girilmedi.';
+
+    return fd;
+  }
+
+  // ── Alert helpers ──
+  function showAlert(msg, type) {
+    const el = document.getElementById('alertBox');
+    el.textContent = msg;
+    el.className = `alert ${type}`;
+    el.style.display = 'block';
+  }
+  function hideAlert() {
+    document.getElementById('alertBox').style.display = 'none';
+  }
+
+  function setLoading(on) {
+    document.getElementById('spinner').style.display = on ? 'block' : 'none';
+    document.getElementById('btnPreview').disabled  = on;
+    document.getElementById('btnGenerate').disabled = on;
+  }
+
+  // ── Preview ──
+  async function doPreview() {
+    hideAlert();
+    let fd;
+    try { fd = buildForm(); } catch(e) { showAlert(e, 'error'); return; }
+
+    setLoading(true);
+    try {
+      const res  = await fetch('/preview', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || data.error) { showAlert(data.error || 'Hata', 'error'); return; }
+
+      document.getElementById('previewMeta').textContent =
+        `Toplam ${data.total} yüzey gösteriliyor (ilk 20):`;
+
+      const tbody = document.getElementById('previewBody');
+      tbody.innerHTML = '';
+      data.rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td>${r.no}</td><td>${r.name}</td><td>${r.ch}</td>` +
+          `<td>${r.E}</td><td>${r.N}</td><td>${r.elev}</td>` +
+          `<td>${r.az}</td><td>${r.za}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('previewCard').style.display = 'block';
+      document.getElementById('previewWrap').style.display = 'block';
+    } catch(e) {
+      showAlert('Sunucu bağlantı hatası: ' + e, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // ── Generate DXF ──
+  async function doGenerate() {
+    hideAlert();
+    let fd;
+    try { fd = buildForm(); } catch(e) { showAlert(e, 'error'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/generate', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showAlert(data.error || `HTTP ${res.status}`, 'error');
+        return;
+      }
+      // Trigger download
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      const prefix = document.getElementById('ringPrefix').value.trim() || 'R';
+      a.href     = url;
+      a.download = `tunnel_segments_${prefix}.dxf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showAlert('✔ DXF dosyası başarıyla oluşturuldu.', 'success');
+    } catch(e) {
+      showAlert('Sunucu bağlantı hatası: ' + e, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }
+</script>
+</body>
+</html>
