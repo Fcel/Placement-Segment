@@ -9,12 +9,22 @@ from src.segment_calculator import calculate_segments
 from src.dxf_generator      import generate_dxf
 
 st.set_page_config(
-    page_title="Tunnel Segment Placement",
+    page_title="TBM Ring Placement",
     page_icon="🚇",
     layout="centered",
 )
 
-st.title("🚇 Tunnel Segment Placement")
+# ── Sidebar ────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("## 🚇 TBM RING PLACEMENT")
+    st.divider()
+    st.markdown("**Developer**")
+    st.markdown("Dr. Fatih Çelik")
+    st.markdown("[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/in/fcelikkk/)")
+    st.divider()
+    st.caption("LandXML → DXF segment placement tool")
+
+st.title("🚇 TBM Ring Placement")
 st.caption("LandXML hizalamasından otomatik segment yerleşimi — DXF çıktısı")
 
 # ── 1. LandXML upload ──────────────────────────────────────────────────────
